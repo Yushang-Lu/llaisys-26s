@@ -299,8 +299,40 @@ tensor_t Tensor::view(const std::vector<size_t> &shape) const {
 }
 
 tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    const auto &old_shape = this->shape();
+    const auto &old_strides = this->strides();
+
+    CHECK_ARGUMENT(
+        dim < this->ndim(),
+        "Tensor::slice dimension is out of range");
+
+    CHECK_ARGUMENT(
+        start <= end,
+        "Tensor::slice start must not be greater than end");
+
+    CHECK_ARGUMENT(
+        end <= old_shape[dim],
+        "Tensor::slice end is out of range");
+
+    const ptrdiff_t stride = old_strides[dim];
+
+    CHECK_ARGUMENT(
+        stride >= 0,
+        "Tensor::slice does not support negative strides");
+
+    TensorMeta meta = _meta;
+    meta.shape[dim] = end - start;
+
+    const size_t byte_offset_delta =
+        start *
+        static_cast<size_t>(stride) *
+        this->elementSize();
+
+    return std::shared_ptr<Tensor>(
+        new Tensor(
+            std::move(meta),
+            _storage,
+            _offset + byte_offset_delta));
 }
 
 void Tensor::load(const void *src_) {
