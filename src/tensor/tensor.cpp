@@ -185,8 +185,37 @@ bool Tensor::isContiguous() const {
 }
 
 tensor_t Tensor::permute(const std::vector<size_t> &order) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    CHECK_ARGUMENT(
+        order.size() == this->ndim(),
+        "Tensor::permute order must contain every dimension");
+
+    std::vector<bool> seen(this->ndim(), false);
+    std::vector<size_t> new_shape(this->ndim());
+    std::vector<ptrdiff_t> new_strides(this->ndim());
+
+    for (size_t new_dim = 0; new_dim < order.size(); ++new_dim) {
+        const size_t old_dim = order[new_dim];
+
+        CHECK_ARGUMENT(
+            old_dim < this->ndim(),
+            "Tensor::permute dimension is out of range");
+
+        CHECK_ARGUMENT(
+            !seen[old_dim],
+            "Tensor::permute dimensions must not be repeated");
+
+        seen[old_dim] = true;
+        new_shape[new_dim] = this->shape()[old_dim];
+        new_strides[new_dim] = this->strides()[old_dim];
+    }
+
+    TensorMeta meta{
+        this->dtype(),
+        std::move(new_shape),
+        std::move(new_strides)};
+
+    return std::shared_ptr<Tensor>(
+        new Tensor(std::move(meta), _storage, _offset));
 }
 
 tensor_t Tensor::view(const std::vector<size_t> &shape) const {
