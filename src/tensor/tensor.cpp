@@ -184,7 +184,32 @@ tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
 }
 
 void Tensor::load(const void *src_) {
-    TO_BE_IMPLEMENTED();
+    const auto device_type = this->deviceType();
+    const auto device_id = this->deviceId();
+    const auto bytes = this->numel() * this->elementSize();
+
+    if (bytes == 0) {
+        return;
+    }
+
+    CHECK_ARGUMENT(
+        src_ != nullptr,
+        "Tensor::load source pointer cannot be null");
+
+    const auto kind =
+        device_type == LLAISYS_DEVICE_CPU
+            ? LLAISYS_MEMCPY_H2H
+            : LLAISYS_MEMCPY_H2D;
+
+    core::context().setDevice(
+        device_type,
+        device_id);
+
+    core::context().runtime().api()->memcpy_sync(
+        this->data(),
+        src_,
+        bytes,
+        kind);
 }
 
 tensor_t Tensor::contiguous() const {
