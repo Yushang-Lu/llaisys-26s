@@ -164,7 +164,23 @@ void Tensor::debug() const {
 }
 
 bool Tensor::isContiguous() const {
-    TO_BE_IMPLEMENTED();
+    if (this->numel() == 0) {
+        return true;
+    }
+
+    ptrdiff_t expected_stride = 1;
+
+    for (size_t i = this->ndim(); i > 0; --i) {
+        size_t dim = i - 1;
+
+        if (this->shape()[dim] != 1 &&
+            this->strides()[dim] != expected_stride) {
+            return false;
+        }
+
+        expected_stride *= static_cast<ptrdiff_t>(this->shape()[dim]);
+    }
+
     return true;
 }
 
