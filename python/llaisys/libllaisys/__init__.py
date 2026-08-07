@@ -12,6 +12,10 @@ from .llaisys_types import llaisysStream_t
 from .tensor import llaisysTensor_t
 from .tensor import load_tensor
 from .ops import load_ops
+from .qwen2 import LlaisysQwen2Meta
+from .qwen2 import LlaisysQwen2Weights
+from .qwen2 import llaisysQwen2Model_t
+from .qwen2 import load_qwen2
 
 
 def load_shared_library():
@@ -38,6 +42,7 @@ LIB_LLAISYS = load_shared_library()
 load_runtime(LIB_LLAISYS)
 load_tensor(LIB_LLAISYS)
 load_ops(LIB_LLAISYS)
+load_qwen2(LIB_LLAISYS)
 
 
 __all__ = [
@@ -45,6 +50,9 @@ __all__ = [
     "LlaisysRuntimeAPI",
     "llaisysStream_t",
     "llaisysTensor_t",
+    "llaisysQwen2Model_t",
+    "LlaisysQwen2Meta",
+    "LlaisysQwen2Weights",
     "llaisysDataType_t",
     "DataType",
     "llaisysDeviceType_t",
