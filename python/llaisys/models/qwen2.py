@@ -411,13 +411,24 @@ class Qwen2:
             ctypes.c_int(1),
         )
         if not model:
-            raise RuntimeError("llaisysQwen2ModelCreate failed")
+            self._raise_native_error("llaisysQwen2ModelCreate")
         self._model = model
 
         weights = LIB_LLAISYS.llaisysQwen2ModelWeights(model)
         if not weights:
-            raise RuntimeError("llaisysQwen2ModelWeights returned null")
+            self._raise_native_error("llaisysQwen2ModelWeights")
         self._weights = weights
+
+    @staticmethod
+    def _raise_native_error(operation: str) -> None:
+        error_ptr = LIB_LLAISYS.llaisysQwen2GetLastError()
+        if error_ptr:
+            message = ctypes.cast(error_ptr, ctypes.c_char_p).value
+            if message:
+                raise RuntimeError(
+                    f"{operation} failed: {message.decode('utf-8', errors='replace')}"
+                )
+        raise RuntimeError(f"{operation} failed")
 
     def _weight_handle(self, spec: _WeightSpec):
         """Return the model-owned tensor handle allocated by ModelCreate."""
@@ -504,16 +515,21 @@ class Qwen2:
 
         with self._lock:
             LIB_LLAISYS.llaisysQwen2ModelReset(self._require_open())
+            if LIB_LLAISYS.llaisysQwen2GetLastError():
+                self._raise_native_error("llaisysQwen2ModelReset")
 
     def _infer(self, token_ids: Sequence[int]) -> int:
         if not token_ids:
             raise ValueError("native Qwen2 inference requires at least one token")
         native_tokens = (ctypes.c_int64 * len(token_ids))(*token_ids)
-        return int(
+        next_token = int(
             LIB_LLAISYS.llaisysQwen2ModelInfer(
                 self._require_open(), native_tokens, ctypes.c_size_t(len(token_ids))
             )
         )
+        if next_token < 0:
+            self._raise_native_error("llaisysQwen2ModelInfer")
+        return next_token
 
     def generate(
         self,
@@ -542,7 +558,7 @@ class Qwen2:
         with self._lock:
             # A Qwen2 instance may be reused for independent prompts. The
             # native cache persists across Infer calls, not across generate.
-            LIB_LLAISYS.llaisysQwen2ModelReset(self._require_open())
+            self.reset()
             if new_token_count == 0:
                 return outputs
 

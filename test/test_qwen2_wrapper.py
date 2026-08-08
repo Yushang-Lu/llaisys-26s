@@ -11,6 +11,10 @@ from llaisys.models.qwen2 import _WeightSpec
 class _FakeNativeLibrary:
     def __init__(self):
         self.reset_calls = []
+        self.last_error = None
+
+    def llaisysQwen2GetLastError(self):
+        return self.last_error
 
     def llaisysQwen2ModelReset(self, model):
         self.reset_calls.append(model)

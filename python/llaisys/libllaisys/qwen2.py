@@ -54,6 +54,9 @@ llaisysQwen2Model_t = c_void_p
 def load_qwen2(lib):
     """Attach Qwen2 C API signatures to an already-loaded shared library."""
 
+    lib.llaisysQwen2GetLastError.argtypes = []
+    lib.llaisysQwen2GetLastError.restype = c_void_p
+
     lib.llaisysQwen2ModelCreate.argtypes = [
         POINTER(LlaisysQwen2Meta),
         llaisysDeviceType_t,

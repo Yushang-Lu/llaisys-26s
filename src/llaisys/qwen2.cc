@@ -5,8 +5,28 @@
 #include "../models/qwen2/qwen2.hpp"
 #include "../utils.hpp"
 
+#include <exception>
 #include <memory>
+#include <string>
 #include <vector>
+
+namespace {
+
+thread_local std::string qwen2_last_error;
+
+void clear_qwen2_error() {
+    qwen2_last_error.clear();
+}
+
+void set_qwen2_error(const std::exception &error) {
+    qwen2_last_error = error.what();
+}
+
+void set_qwen2_error() {
+    qwen2_last_error = "unknown native exception";
+}
+
+} // namespace
 
 struct LlaisysQwen2Model {
     LlaisysQwen2Model(const LlaisysQwen2Meta &meta,
@@ -94,48 +114,90 @@ struct LlaisysQwen2Model {
 };
 
 __C {
+    const char *llaisysQwen2GetLastError(void) {
+        return qwen2_last_error.empty() ? nullptr : qwen2_last_error.c_str();
+    }
+
     LlaisysQwen2Model *llaisysQwen2ModelCreate(
         const LlaisysQwen2Meta *meta,
         llaisysDeviceType_t device,
         int *device_ids,
         int ndevice) {
-        CHECK_ARGUMENT(meta != nullptr,
-                       "Qwen2 model metadata cannot be null");
-        CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU,
-                       "Qwen2 model currently supports CPU only");
-        CHECK_ARGUMENT(ndevice == 1,
-                       "Qwen2 model supports exactly one CPU device");
+        clear_qwen2_error();
+        try {
+            CHECK_ARGUMENT(meta != nullptr,
+                           "Qwen2 model metadata cannot be null");
+            CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU,
+                           "Qwen2 model currently supports CPU only");
+            CHECK_ARGUMENT(ndevice == 1,
+                           "Qwen2 model supports exactly one CPU device");
 
-        CHECK_ARGUMENT(device_ids != nullptr,
-                       "Qwen2 device id list cannot be null");
-        const int device_id = device_ids[0];
+            CHECK_ARGUMENT(device_ids != nullptr,
+                           "Qwen2 device id list cannot be null");
+            const int device_id = device_ids[0];
 
-        return new LlaisysQwen2Model(*meta, device, device_id);
+            return new LlaisysQwen2Model(*meta, device, device_id);
+        } catch (const std::exception &error) {
+            set_qwen2_error(error);
+        } catch (...) {
+            set_qwen2_error();
+        }
+        return nullptr;
     }
 
     void llaisysQwen2ModelDestroy(LlaisysQwen2Model * model) {
-        delete model;
+        clear_qwen2_error();
+        try {
+            delete model;
+        } catch (const std::exception &error) {
+            set_qwen2_error(error);
+        } catch (...) {
+            set_qwen2_error();
+        }
     }
 
     LlaisysQwen2Weights *llaisysQwen2ModelWeights(
         LlaisysQwen2Model * model) {
-        CHECK_ARGUMENT(model != nullptr,
-                       "Qwen2 model cannot be null");
-        return &model->weights;
+        clear_qwen2_error();
+        try {
+            CHECK_ARGUMENT(model != nullptr,
+                           "Qwen2 model cannot be null");
+            return &model->weights;
+        } catch (const std::exception &error) {
+            set_qwen2_error(error);
+        } catch (...) {
+            set_qwen2_error();
+        }
+        return nullptr;
     }
 
     void llaisysQwen2ModelReset(LlaisysQwen2Model * model) {
-        CHECK_ARGUMENT(model != nullptr,
-                       "Qwen2 model cannot be null");
-        model->model->reset();
+        clear_qwen2_error();
+        try {
+            CHECK_ARGUMENT(model != nullptr,
+                           "Qwen2 model cannot be null");
+            model->model->reset();
+        } catch (const std::exception &error) {
+            set_qwen2_error(error);
+        } catch (...) {
+            set_qwen2_error();
+        }
     }
 
     int64_t llaisysQwen2ModelInfer(
         LlaisysQwen2Model * model,
         int64_t * token_ids,
         size_t ntoken) {
-        CHECK_ARGUMENT(model != nullptr,
-                       "Qwen2 model cannot be null");
-        return model->model->infer(token_ids, ntoken);
+        clear_qwen2_error();
+        try {
+            CHECK_ARGUMENT(model != nullptr,
+                           "Qwen2 model cannot be null");
+            return model->model->infer(token_ids, ntoken);
+        } catch (const std::exception &error) {
+            set_qwen2_error(error);
+        } catch (...) {
+            set_qwen2_error();
+        }
+        return -1;
     }
 }

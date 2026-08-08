@@ -31,6 +31,8 @@ __C {
 
     struct LlaisysQwen2Model;
 
+    __export const char *llaisysQwen2GetLastError(void);
+
     __export struct LlaisysQwen2Model *llaisysQwen2ModelCreate(const LlaisysQwen2Meta *meta, llaisysDeviceType_t device, int *device_ids, int ndevice);
 
     __export void llaisysQwen2ModelDestroy(struct LlaisysQwen2Model * model);
