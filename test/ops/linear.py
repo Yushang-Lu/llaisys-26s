@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
@@ -23,6 +24,7 @@ def test_op_linear(
     device_name="cpu",
     profile=False,
 ):
+    start_time = time.perf_counter()
     print(f"   out {out_shape}, x {x_shape}, w {w_shape}, bias {use_bias}, dtype <{dtype_name}>")
     x, x_ = random_tensor(x_shape, dtype_name, device_name, scale=0.1)
     w, w_ = random_tensor(w_shape, dtype_name, device_name, scale=0.01)
@@ -43,6 +45,8 @@ def test_op_linear(
             lambda: llaisys.Ops.linear(out_, x_, w_, bias_),
             device_name,
         )
+
+    print(f"   elapsed {time.perf_counter() - start_time:.6f}s")
 
 
 if __name__ == "__main__":
