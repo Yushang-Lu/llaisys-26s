@@ -69,7 +69,9 @@ private:
                     const tensor_t &bias);
     void ropeBf16(const tensor_t &out,
                   const tensor_t &in,
+                  const tensor_t &position_ids,
                   size_t num_heads);
+    void copyTensorData(const tensor_t &out, const tensor_t &in) const;
 
     LlaisysQwen2Meta _meta;
     llaisysDeviceType_t _device_type;

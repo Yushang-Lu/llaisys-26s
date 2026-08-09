@@ -69,7 +69,7 @@ def _as_positive_float(value: Any, name: str) -> float:
 
 
 class Qwen2:
-    """A CPU-only native Qwen2 causal language model.
+    """A native CPU or NVIDIA Qwen2 causal language model.
 
     ``generate`` always uses greedy (argmax) decoding. ``top_k``, ``top_p``, and ``temperature`` remain in the signature for compatibility with the assignment test harness, but are intentionally not used by this model.
     """
@@ -79,9 +79,6 @@ class Qwen2:
             self._device = DeviceType(device)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"unsupported device {device!r}") from exc
-        if self._device is not DeviceType.CPU:
-            raise NotImplementedError("Qwen2 inference currently supports CPU only")
-
         self._lock = threading.RLock()
         self._model = None
         self._weights = None

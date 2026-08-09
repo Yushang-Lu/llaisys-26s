@@ -153,11 +153,21 @@ void Tensor::debug() const {
     if (this->deviceType() == LLAISYS_DEVICE_CPU) {
         debug_print(this->data(), this->shape(), this->strides(), this->dtype());
     } else {
-        auto tmp_tensor = create({this->_storage->size()}, this->dtype());
+        size_t storage_span = this->numel() == 0 ? 0 : 1;
+        if (this->numel() != 0) {
+            for (size_t dim = 0; dim < this->ndim(); ++dim) {
+                CHECK_ARGUMENT(
+                    this->strides()[dim] >= 0,
+                    "Tensor::debug does not support negative strides");
+                storage_span += static_cast<size_t>(this->strides()[dim]) *
+                                (this->shape()[dim] - 1);
+            }
+        }
+        auto tmp_tensor = create({storage_span}, this->dtype());
         core::context().runtime().api()->memcpy_sync(
             tmp_tensor->data(),
             this->data(),
-            this->numel() * this->elementSize(),
+            storage_span * this->elementSize(),
             LLAISYS_MEMCPY_D2H);
         debug_print(tmp_tensor->data(), this->shape(), this->strides(), this->dtype());
     }
