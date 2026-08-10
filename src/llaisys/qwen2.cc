@@ -127,10 +127,12 @@ __C {
         try {
             CHECK_ARGUMENT(meta != nullptr,
                            "Qwen2 model metadata cannot be null");
-            CHECK_ARGUMENT(device == LLAISYS_DEVICE_CPU,
-                           "Qwen2 model currently supports CPU only");
+            CHECK_ARGUMENT(
+                device == LLAISYS_DEVICE_CPU ||
+                    device == LLAISYS_DEVICE_NVIDIA,
+                "Qwen2 model supports CPU or NVIDIA devices");
             CHECK_ARGUMENT(ndevice == 1,
-                           "Qwen2 model supports exactly one CPU device");
+                           "Qwen2 model supports exactly one device");
 
             CHECK_ARGUMENT(device_ids != nullptr,
                            "Qwen2 device id list cannot be null");

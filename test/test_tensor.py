@@ -5,15 +5,18 @@ from test_utils import *
 import argparse
 
 
-def test_tensor():
-    torch_tensor = torch.arange(60, dtype=torch_dtype("i64")).reshape(3, 4, 5)
+def test_tensor(device_name="cpu"):
+    host_tensor = torch.arange(60, dtype=torch_dtype("i64")).reshape(3, 4, 5)
+    torch_tensor = host_tensor.to(torch_device(device_name))
     llaisys_tensor = llaisys.Tensor(
-        (3, 4, 5), dtype=llaisys_dtype("i64"), device=llaisys_device("cpu")
+        (3, 4, 5),
+        dtype=llaisys_dtype("i64"),
+        device=llaisys_device(device_name),
     )
 
     # Test load
     print("===Test load===")
-    llaisys_tensor.load(torch_tensor.data_ptr())
+    llaisys_tensor.load(host_tensor.data_ptr())
     llaisys_tensor.debug()
     assert llaisys_tensor.is_contiguous() == torch_tensor.is_contiguous()
     assert check_equal(llaisys_tensor, torch_tensor)
@@ -50,6 +53,9 @@ def test_tensor():
 
 
 if __name__ == "__main__":
-    test_tensor()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"])
+    args = parser.parse_args()
+    test_tensor(args.device)
 
     print("\n\033[92mTest passed!\033[0m\n")

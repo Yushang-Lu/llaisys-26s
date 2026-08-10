@@ -3,7 +3,9 @@
 #include "../../ops/add/op.hpp"
 #include "../../ops/argmax/op.hpp"
 #include "../../ops/embedding/op.hpp"
+#include "../../ops/linear/op.hpp"
 #include "../../ops/rms_norm/op.hpp"
+#include "../../ops/rope/op.hpp"
 #include "../../ops/self_attention/op.hpp"
 #include "../../ops/swiglu/op.hpp"
 #include "../../utils.hpp"
@@ -140,14 +142,13 @@ private:
 class Qwen2Workspace {
 public:
     tensor_t input_ids;
+    tensor_t position_ids;
     tensor_t hidden_a;
     tensor_t hidden_b;
     tensor_t attention_input;
     tensor_t query_projection;
     tensor_t key_projection;
-    tensor_t value_projection;
     tensor_t rotated_query;
-    tensor_t rotated_keys;
     tensor_t attention_values;
     tensor_t attention_output;
     tensor_t post_attention;
@@ -160,6 +161,7 @@ public:
     tensor_t logits;
     tensor_t max_index;
     tensor_t max_value;
+    tensor_t host_max_index;
 };
 
 namespace {
@@ -305,7 +307,7 @@ constexpr size_t kInitialCacheCapacity = 256;
 
 void validateMeta(const LlaisysQwen2Meta &meta) {
     CHECK_ARGUMENT(meta.dtype == LLAISYS_DTYPE_BF16,
-                   "Qwen2 CPU inference only supports BF16 weights");
+                   "Qwen2 inference only supports BF16 weights");
     CHECK_ARGUMENT(meta.nlayer > 0, "Qwen2 must have at least one layer");
     CHECK_ARGUMENT(meta.hs > 0, "Qwen2 hidden size must be positive");
     CHECK_ARGUMENT(meta.nh > 0, "Qwen2 attention head count must be positive");
@@ -335,15 +337,19 @@ Qwen2Model::Qwen2Model(const LlaisysQwen2Meta &meta,
                        int device_id)
     : _meta(meta), _device_type(device_type), _device_id(device_id) {
     validateMeta(_meta);
-    CHECK_ARGUMENT(_device_type == LLAISYS_DEVICE_CPU,
-                   "Qwen2 model currently supports CPU only");
-    CHECK_ARGUMENT(_device_id == 0,
-                   "Qwen2 CPU model only supports device id 0");
-    _workers = std::make_unique<Qwen2WorkerPool>();
-    _rope_denominators.resize(_meta.dh / 2);
-    for (size_t feature = 0; feature < _rope_denominators.size(); ++feature) {
-        const float exponent = 2.0f * static_cast<float>(feature) / static_cast<float>(_meta.dh);
-        _rope_denominators[feature] = std::pow(_meta.theta, exponent);
+    CHECK_ARGUMENT(
+        _device_type == LLAISYS_DEVICE_CPU ||
+            _device_type == LLAISYS_DEVICE_NVIDIA,
+        "Qwen2 model supports CPU or NVIDIA devices");
+    llaisys::core::context().setDevice(_device_type, _device_id);
+
+    if (_device_type == LLAISYS_DEVICE_CPU) {
+        _workers = std::make_unique<Qwen2WorkerPool>();
+        _rope_denominators.resize(_meta.dh / 2);
+        for (size_t feature = 0; feature < _rope_denominators.size(); ++feature) {
+            const float exponent = 2.0f * static_cast<float>(feature) / static_cast<float>(_meta.dh);
+            _rope_denominators[feature] = std::pow(_meta.theta, exponent);
+        }
     }
 
     createWeights();
@@ -422,8 +428,10 @@ void Qwen2Model::ensureCacheCapacity(size_t required_capacity) {
         if (_cache_length != 0) {
             auto key_prefix = new_keys->slice(0, 0, _cache_length);
             auto value_prefix = new_values->slice(0, 0, _cache_length);
-            key_prefix->load(_key_cache[layer]->data());
-            value_prefix->load(_value_cache[layer]->data());
+            auto old_key_prefix = _key_cache[layer]->slice(0, 0, _cache_length);
+            auto old_value_prefix = _value_cache[layer]->slice(0, 0, _cache_length);
+            copyTensorData(key_prefix, old_key_prefix);
+            copyTensorData(value_prefix, old_value_prefix);
         }
 
         new_key_cache.push_back(std::move(new_keys));
@@ -455,14 +463,13 @@ void Qwen2Model::ensureWorkspaceCapacity(size_t required_capacity) {
     const size_t key_value_size = _meta.nkvh * _meta.dh;
     auto workspace = std::make_unique<Qwen2Workspace>();
     workspace->input_ids = createTensor({new_capacity}, LLAISYS_DTYPE_I64);
+    workspace->position_ids = createTensor({new_capacity}, LLAISYS_DTYPE_I64);
     workspace->hidden_a = createTensor({new_capacity, _meta.hs}, _meta.dtype);
     workspace->hidden_b = createTensor({new_capacity, _meta.hs}, _meta.dtype);
     workspace->attention_input = createTensor({new_capacity, _meta.hs}, _meta.dtype);
     workspace->query_projection = createTensor({new_capacity, query_size}, _meta.dtype);
     workspace->key_projection = createTensor({new_capacity, key_value_size}, _meta.dtype);
-    workspace->value_projection = createTensor({new_capacity, key_value_size}, _meta.dtype);
     workspace->rotated_query = createTensor({new_capacity, _meta.nh, _meta.dh}, _meta.dtype);
-    workspace->rotated_keys = createTensor({new_capacity, _meta.nkvh, _meta.dh}, _meta.dtype);
     workspace->attention_values = createTensor({new_capacity, _meta.nh, _meta.dh}, _meta.dtype);
     workspace->attention_output = createTensor({new_capacity, _meta.hs}, _meta.dtype);
     workspace->post_attention = createTensor({new_capacity, _meta.hs}, _meta.dtype);
@@ -475,6 +482,8 @@ void Qwen2Model::ensureWorkspaceCapacity(size_t required_capacity) {
     workspace->logits = createTensor({1, _meta.voc}, _meta.dtype);
     workspace->max_index = createTensor({1}, LLAISYS_DTYPE_I64);
     workspace->max_value = createTensor({1}, _meta.dtype);
+    workspace->host_max_index = Tensor::create(
+        {1}, LLAISYS_DTYPE_I64, LLAISYS_DEVICE_CPU, 0);
 
     _workspace = std::move(workspace);
     _workspace_capacity = new_capacity;
@@ -505,6 +514,11 @@ void Qwen2Model::linearBf16(const tensor_t &out,
                             const tensor_t &in,
                             const tensor_t &weight,
                             const tensor_t &bias) {
+    if (_device_type == LLAISYS_DEVICE_NVIDIA) {
+        ops::linear(out, in, weight, bias);
+        return;
+    }
+
     CHECK_SAME_DEVICE(out, in, weight);
     ASSERT(out->ndim() == 2 && in->ndim() == 2 && weight->ndim() == 2,
            "Qwen2 linear tensors must be 2D");
@@ -544,7 +558,13 @@ void Qwen2Model::linearBf16(const tensor_t &out,
 
 void Qwen2Model::ropeBf16(const tensor_t &out,
                           const tensor_t &in,
+                          const tensor_t &position_ids,
                           size_t num_heads) {
+    if (_device_type == LLAISYS_DEVICE_NVIDIA) {
+        ops::rope(out, in, position_ids, _meta.theta);
+        return;
+    }
+
     CHECK_SAME_DEVICE(out, in);
     ASSERT(out->ndim() == 3 && in->ndim() == 3,
            "Qwen2 RoPE tensors must be 3D");
@@ -569,6 +589,29 @@ void Qwen2Model::ropeBf16(const tensor_t &out,
     _workers->run(in->shape()[0] * num_heads,
                   &runBf16Rope,
                   &context);
+}
+
+void Qwen2Model::copyTensorData(
+    const tensor_t &out,
+    const tensor_t &in) const {
+    CHECK_SAME_DEVICE(out, in);
+    ASSERT(out->shape() == in->shape(),
+           "Qwen2 tensor copy shapes must match");
+    ASSERT(out->dtype() == in->dtype(),
+           "Qwen2 tensor copy dtypes must match");
+    ASSERT(out->isContiguous() && in->isContiguous(),
+           "Qwen2 tensor copies must be contiguous");
+
+    llaisys::core::context().setDevice(_device_type, _device_id);
+    auto &runtime = llaisys::core::context().runtime();
+    runtime.api()->memcpy_async(
+        out->data(),
+        in->data(),
+        out->numel() * out->elementSize(),
+        _device_type == LLAISYS_DEVICE_CPU
+            ? LLAISYS_MEMCPY_H2H
+            : LLAISYS_MEMCPY_D2D,
+        runtime.stream());
 }
 
 int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
@@ -601,7 +644,11 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
                        "Qwen2 position id overflows int64");
         _position_values[token] = static_cast<int64_t>(_cache_length + token);
     }
-    prepareRope(_position_values);
+    auto position_ids = workspace.position_ids->slice(0, 0, ntoken);
+    position_ids->load(_position_values.data());
+    if (_device_type == LLAISYS_DEVICE_CPU) {
+        prepareRope(_position_values);
+    }
 
     auto hidden = workspace.hidden_a->slice(0, 0, ntoken);
     auto next_hidden = workspace.hidden_b->slice(0, 0, ntoken);
@@ -610,12 +657,9 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
     auto attention_input = workspace.attention_input->slice(0, 0, ntoken);
     auto query_projection = workspace.query_projection->slice(0, 0, ntoken);
     auto key_projection = workspace.key_projection->slice(0, 0, ntoken);
-    auto value_projection = workspace.value_projection->slice(0, 0, ntoken);
     auto query = query_projection->view({ntoken, _meta.nh, _meta.dh});
     auto keys = key_projection->view({ntoken, _meta.nkvh, _meta.dh});
-    auto values = value_projection->view({ntoken, _meta.nkvh, _meta.dh});
     auto rotated_query = workspace.rotated_query->slice(0, 0, ntoken);
-    auto rotated_keys = workspace.rotated_keys->slice(0, 0, ntoken);
     auto attention_values = workspace.attention_values->slice(0, 0, ntoken);
     auto attention_merged = attention_values->view({ntoken, _meta.hs});
     auto attention_output = workspace.attention_output->slice(0, 0, ntoken);
@@ -627,11 +671,18 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
     auto mlp_output = workspace.mlp_output->slice(0, 0, ntoken);
 
     const float attention_scale = 1.0f / std::sqrt(static_cast<float>(_meta.dh));
+    const size_t key_value_size = _meta.nkvh * _meta.dh;
 
     for (size_t layer_index = 0;
          layer_index < _meta.nlayer;
          ++layer_index) {
         const auto &layer = _weights.layers[layer_index];
+        auto key_destination = _key_cache[layer_index]->slice(
+            0, _cache_length, total_length);
+        auto value_destination = _value_cache[layer_index]->slice(
+            0, _cache_length, total_length);
+        auto value_projection = value_destination->view(
+            {ntoken, key_value_size});
 
         ops::rms_norm(attention_input,
                       hidden,
@@ -651,15 +702,8 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
                    layer.attn_v_w,
                    layer.attn_v_b);
 
-        ropeBf16(rotated_query, query, _meta.nh);
-        ropeBf16(rotated_keys, keys, _meta.nkvh);
-
-        auto key_destination = _key_cache[layer_index]->slice(
-            0, _cache_length, total_length);
-        auto value_destination = _value_cache[layer_index]->slice(
-            0, _cache_length, total_length);
-        key_destination->load(rotated_keys->data());
-        value_destination->load(values->data());
+        ropeBf16(rotated_query, query, position_ids, _meta.nh);
+        ropeBf16(key_destination, keys, position_ids, _meta.nkvh);
 
         auto cached_keys = _key_cache[layer_index]->slice(0, 0, total_length);
         auto cached_values = _value_cache[layer_index]->slice(0, 0, total_length);
@@ -713,8 +757,22 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
                 logits);
 
     _cache_length = total_length;
+    if (_device_type == LLAISYS_DEVICE_CPU) {
+        return *reinterpret_cast<const int64_t *>(
+            workspace.max_index->data());
+    }
+
+    llaisys::core::context().setDevice(_device_type, _device_id);
+    auto &runtime = llaisys::core::context().runtime();
+    runtime.api()->memcpy_async(
+        workspace.host_max_index->data(),
+        workspace.max_index->data(),
+        sizeof(int64_t),
+        LLAISYS_MEMCPY_D2H,
+        runtime.stream());
+    runtime.synchronize();
     return *reinterpret_cast<const int64_t *>(
-        workspace.max_index->data());
+        workspace.host_max_index->data());
 }
 
 void Qwen2Model::reset() {

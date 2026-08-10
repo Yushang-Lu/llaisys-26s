@@ -15,7 +15,9 @@ def torch_self_attention(attn_val, query, key, value, scale):
     L, S = query.size(-2), key.size(-2)
     attn_bias = torch.zeros(L, S, dtype=query.dtype, device=query.device)
 
-    temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=S-L)
+    temp_mask = torch.ones(L, S, dtype=torch.bool, device=query.device).tril(
+        diagonal=S - L
+    )
     attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
     attn_bias.to(query.dtype)
 
@@ -84,6 +86,21 @@ if __name__ == "__main__":
         for dtype_name, atol, rtol in testDtypePrec:
             test_op_self_attention(
                 *shape, dtype_name, atol, rtol, args.device, args.profile
+            )
+
+    if args.device == "nvidia":
+        for kvlen in (1, 32, 128):
+            test_op_self_attention(
+                1,
+                kvlen,
+                12,
+                2,
+                128,
+                "bf16",
+                1e-2,
+                1e-2,
+                args.device,
+                args.profile,
             )
 
     print("\033[92mTest passed!\033[0m\n")
