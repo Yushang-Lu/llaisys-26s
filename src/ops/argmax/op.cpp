@@ -64,6 +64,7 @@ void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals) {
             vals->data(),
             dtype,
             vals->numel(),
+            vals->deviceId(),
             llaisys::core::context().runtime().stream());
 #endif
     default:

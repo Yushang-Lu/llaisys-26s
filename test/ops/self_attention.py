@@ -88,4 +88,19 @@ if __name__ == "__main__":
                 *shape, dtype_name, atol, rtol, args.device, args.profile
             )
 
+    if args.device == "nvidia":
+        for kvlen in (1, 32, 128):
+            test_op_self_attention(
+                1,
+                kvlen,
+                12,
+                2,
+                128,
+                "bf16",
+                1e-2,
+                1e-2,
+                args.device,
+                args.profile,
+            )
+
     print("\033[92mTest passed!\033[0m\n")

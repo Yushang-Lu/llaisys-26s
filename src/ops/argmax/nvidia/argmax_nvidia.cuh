@@ -11,5 +11,6 @@ void argmax(
     const std::byte *vals,
     llaisysDataType_t dtype,
     size_t numel,
+    int device_id,
     llaisysStream_t stream);
 }

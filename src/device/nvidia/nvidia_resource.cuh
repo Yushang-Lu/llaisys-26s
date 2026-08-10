@@ -8,11 +8,19 @@
 #include <cstddef>
 
 namespace llaisys::device::nvidia {
+struct ArgmaxWorkspace {
+    float *values;
+    size_t *indices;
+};
+
 class Resource : public llaisys::device::DeviceResource {
 private:
     cublasHandle_t _cublas = nullptr;
+    cudaStream_t _cublas_stream = nullptr;
+    bool _cublas_stream_bound = false;
     float *_attention_scores = nullptr;
     size_t _attention_score_capacity = 0;
+    std::byte *_argmax_workspace = nullptr;
 
 public:
     Resource(int device_id);
@@ -20,6 +28,7 @@ public:
 
     cublasHandle_t cublas(cudaStream_t stream);
     float *attentionScores(size_t elements);
+    ArgmaxWorkspace argmaxWorkspace(size_t elements);
 };
 
 Resource &resource(int device_id);

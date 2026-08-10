@@ -148,9 +148,7 @@ public:
     tensor_t attention_input;
     tensor_t query_projection;
     tensor_t key_projection;
-    tensor_t value_projection;
     tensor_t rotated_query;
-    tensor_t rotated_keys;
     tensor_t attention_values;
     tensor_t attention_output;
     tensor_t post_attention;
@@ -471,9 +469,7 @@ void Qwen2Model::ensureWorkspaceCapacity(size_t required_capacity) {
     workspace->attention_input = createTensor({new_capacity, _meta.hs}, _meta.dtype);
     workspace->query_projection = createTensor({new_capacity, query_size}, _meta.dtype);
     workspace->key_projection = createTensor({new_capacity, key_value_size}, _meta.dtype);
-    workspace->value_projection = createTensor({new_capacity, key_value_size}, _meta.dtype);
     workspace->rotated_query = createTensor({new_capacity, _meta.nh, _meta.dh}, _meta.dtype);
-    workspace->rotated_keys = createTensor({new_capacity, _meta.nkvh, _meta.dh}, _meta.dtype);
     workspace->attention_values = createTensor({new_capacity, _meta.nh, _meta.dh}, _meta.dtype);
     workspace->attention_output = createTensor({new_capacity, _meta.hs}, _meta.dtype);
     workspace->post_attention = createTensor({new_capacity, _meta.hs}, _meta.dtype);
@@ -661,12 +657,9 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
     auto attention_input = workspace.attention_input->slice(0, 0, ntoken);
     auto query_projection = workspace.query_projection->slice(0, 0, ntoken);
     auto key_projection = workspace.key_projection->slice(0, 0, ntoken);
-    auto value_projection = workspace.value_projection->slice(0, 0, ntoken);
     auto query = query_projection->view({ntoken, _meta.nh, _meta.dh});
     auto keys = key_projection->view({ntoken, _meta.nkvh, _meta.dh});
-    auto values = value_projection->view({ntoken, _meta.nkvh, _meta.dh});
     auto rotated_query = workspace.rotated_query->slice(0, 0, ntoken);
-    auto rotated_keys = workspace.rotated_keys->slice(0, 0, ntoken);
     auto attention_values = workspace.attention_values->slice(0, 0, ntoken);
     auto attention_merged = attention_values->view({ntoken, _meta.hs});
     auto attention_output = workspace.attention_output->slice(0, 0, ntoken);
@@ -678,11 +671,18 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
     auto mlp_output = workspace.mlp_output->slice(0, 0, ntoken);
 
     const float attention_scale = 1.0f / std::sqrt(static_cast<float>(_meta.dh));
+    const size_t key_value_size = _meta.nkvh * _meta.dh;
 
     for (size_t layer_index = 0;
          layer_index < _meta.nlayer;
          ++layer_index) {
         const auto &layer = _weights.layers[layer_index];
+        auto key_destination = _key_cache[layer_index]->slice(
+            0, _cache_length, total_length);
+        auto value_destination = _value_cache[layer_index]->slice(
+            0, _cache_length, total_length);
+        auto value_projection = value_destination->view(
+            {ntoken, key_value_size});
 
         ops::rms_norm(attention_input,
                       hidden,
@@ -703,14 +703,7 @@ int64_t Qwen2Model::infer(const int64_t *token_ids, size_t ntoken) {
                    layer.attn_v_b);
 
         ropeBf16(rotated_query, query, position_ids, _meta.nh);
-        ropeBf16(rotated_keys, keys, position_ids, _meta.nkvh);
-
-        auto key_destination = _key_cache[layer_index]->slice(
-            0, _cache_length, total_length);
-        auto value_destination = _value_cache[layer_index]->slice(
-            0, _cache_length, total_length);
-        copyTensorData(key_destination, rotated_keys);
-        copyTensorData(value_destination, values);
+        ropeBf16(key_destination, keys, position_ids, _meta.nkvh);
 
         auto cached_keys = _key_cache[layer_index]->slice(0, 0, total_length);
         auto cached_values = _value_cache[layer_index]->slice(0, 0, total_length);

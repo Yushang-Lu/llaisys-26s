@@ -10,7 +10,15 @@
 namespace llaisys::ops::nvidia {
 namespace {
 
-constexpr unsigned int kThreads = 256;
+constexpr unsigned int kMaxThreads = 256;
+
+unsigned int threadsFor(size_t size) {
+    unsigned int threads = 32;
+    while (threads < size && threads < kMaxThreads) {
+        threads *= 2;
+    }
+    return threads;
+}
 
 template <typename T>
 __global__ void attentionScoreKernel(
@@ -23,7 +31,7 @@ __global__ void attentionScoreKernel(
     size_t num_kv_heads,
     size_t head_dim,
     float scale) {
-    __shared__ float reduction[kThreads];
+    __shared__ float reduction[kMaxThreads];
     const size_t score_index = blockIdx.x;
     const size_t key_index = score_index % kv_len;
     const size_t row = score_index / kv_len;
@@ -66,7 +74,7 @@ __global__ void attentionSoftmaxKernel(
     size_t q_len,
     size_t kv_len,
     size_t num_heads) {
-    __shared__ float reduction[kThreads];
+    __shared__ float reduction[kMaxThreads];
     const size_t row = blockIdx.x;
     const size_t query_index = row / num_heads;
     const size_t visible_kv_len = kv_len - q_len + query_index + 1;
@@ -164,7 +172,11 @@ void launchAttention(
         throw std::overflow_error("self-attention dimensions exceed CUDA grid limits");
     }
 
-    attentionScoreKernel<<<static_cast<unsigned int>(score_count), kThreads, 0, stream>>>(
+    const unsigned int score_threads = threadsFor(head_dim);
+    const unsigned int softmax_threads = threadsFor(kv_len);
+    const unsigned int value_threads = threadsFor(value_dim);
+
+    attentionScoreKernel<<<static_cast<unsigned int>(score_count), score_threads, 0, stream>>>(
         scores,
         reinterpret_cast<const T *>(q),
         reinterpret_cast<const T *>(k),
@@ -176,11 +188,11 @@ void launchAttention(
         scale);
     device::nvidia::checkKernelLaunch("self-attention score kernel launch");
 
-    attentionSoftmaxKernel<<<static_cast<unsigned int>(rows), kThreads, 0, stream>>>(
+    attentionSoftmaxKernel<<<static_cast<unsigned int>(rows), softmax_threads, 0, stream>>>(
         scores, q_len, kv_len, num_heads);
     device::nvidia::checkKernelLaunch("self-attention softmax kernel launch");
 
-    attentionValueKernel<<<static_cast<unsigned int>(rows), kThreads, 0, stream>>>(
+    attentionValueKernel<<<static_cast<unsigned int>(rows), value_threads, 0, stream>>>(
         reinterpret_cast<T *>(attn_val),
         scores,
         reinterpret_cast<const T *>(v),
