@@ -339,8 +339,9 @@ Qwen2Model::Qwen2Model(const LlaisysQwen2Meta &meta,
     validateMeta(_meta);
     CHECK_ARGUMENT(
         _device_type == LLAISYS_DEVICE_CPU ||
-            _device_type == LLAISYS_DEVICE_NVIDIA,
-        "Qwen2 model supports CPU or NVIDIA devices");
+            _device_type == LLAISYS_DEVICE_NVIDIA ||
+            _device_type == LLAISYS_DEVICE_METAX,
+        "Qwen2 model supports CPU, NVIDIA, or MetaX devices");
     llaisys::core::context().setDevice(_device_type, _device_id);
 
     if (_device_type == LLAISYS_DEVICE_CPU) {
@@ -514,7 +515,7 @@ void Qwen2Model::linearBf16(const tensor_t &out,
                             const tensor_t &in,
                             const tensor_t &weight,
                             const tensor_t &bias) {
-    if (_device_type == LLAISYS_DEVICE_NVIDIA) {
+    if (_device_type == LLAISYS_DEVICE_NVIDIA || _device_type == LLAISYS_DEVICE_METAX) {
         ops::linear(out, in, weight, bias);
         return;
     }
@@ -560,7 +561,7 @@ void Qwen2Model::ropeBf16(const tensor_t &out,
                           const tensor_t &in,
                           const tensor_t &position_ids,
                           size_t num_heads) {
-    if (_device_type == LLAISYS_DEVICE_NVIDIA) {
+    if (_device_type == LLAISYS_DEVICE_NVIDIA || _device_type == LLAISYS_DEVICE_METAX) {
         ops::rope(out, in, position_ids, _meta.theta);
         return;
     }

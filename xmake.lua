@@ -18,6 +18,18 @@ if has_config("nv-gpu") then
     includes("xmake/nvidia.lua")
 end
 
+-- MetaX --
+option("metax-gpu")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to compile implementations for MetaX GPU")
+option_end()
+
+if has_config("metax-gpu") then
+    add_defines("ENABLE_METAX_API")
+    includes("xmake/metax.lua")
+end
+
 target("llaisys-utils")
     set_kind("static")
 
@@ -39,6 +51,9 @@ target("llaisys-device")
     add_deps("llaisys-device-cpu")
     if has_config("nv-gpu") then
         add_deps("llaisys-device-nvidia")
+    end
+    if has_config("metax-gpu") then
+        add_deps("llaisys-device-metax")
     end
 
     set_languages("cxx17")
@@ -89,13 +104,16 @@ target("llaisys-ops")
     if has_config("nv-gpu") then
         add_deps("llaisys-ops-nvidia")
     end
+    if has_config("metax-gpu") then
+        add_deps("llaisys-ops-metax")
+    end
 
     set_languages("cxx17")
     set_warnings("all", "error")
     if not is_plat("windows") then
         add_cxflags("-fPIC", "-Wno-unknown-pragmas")
     end
-    
+
     add_files("src/ops/*/*.cpp")
 
     on_install(function (target) end)
@@ -130,13 +148,20 @@ target("llaisys")
         add_deps("llaisys-ops-nvidia")
         add_links("cublas", "cudart")
     end
+    if has_config("metax-gpu") then
+        add_deps("llaisys-device-metax")
+        add_deps("llaisys-ops-metax")
+        add_linkdirs(METAX_LIBRARY_DIRS)
+        add_rpathdirs(METAX_LIBRARY_DIRS)
+        add_syslinks("mcblas", "mcruntime", "runtime_cu", "mccompiler")
+    end
 
     set_languages("cxx17")
     set_warnings("all", "error")
     add_files("src/llaisys/*.cc")
     set_installdir(".")
 
-    
+
     after_install(function (target)
         -- copy shared library to python package
         print("Copying llaisys to python/llaisys/libllaisys/ ..")

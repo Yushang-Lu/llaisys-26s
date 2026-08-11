@@ -69,7 +69,7 @@ def _as_positive_float(value: Any, name: str) -> float:
 
 
 class Qwen2:
-    """A native CPU or NVIDIA Qwen2 causal language model.
+    """A native CPU, NVIDIA, or MetaX Qwen2 causal language model.
 
     ``generate`` always uses greedy (argmax) decoding. ``top_k``, ``top_p``, and ``temperature`` remain in the signature for compatibility with the assignment test harness, but are intentionally not used by this model.
     """

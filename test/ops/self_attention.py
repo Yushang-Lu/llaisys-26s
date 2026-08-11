@@ -5,7 +5,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 import llaisys
 import torch
-from test_utils import random_tensor, check_equal, benchmark
+from test_utils import random_tensor, check_equal, benchmark, torch_full_precision_matmul
 
 
 def torch_self_attention(attn_val, query, key, value, scale):
@@ -51,7 +51,8 @@ def test_op_self_attention(
     scale = 1.0 / (hd**0.5)
 
     attn_val, attn_val_ = random_tensor((qlen, nh, hd), dtype_name, device_name)
-    torch_self_attention(attn_val, q, k, v, scale)
+    with torch_full_precision_matmul(device_name):
+        torch_self_attention(attn_val, q, k, v, scale)
     llaisys.Ops.self_attention(attn_val_, q_, k_, v_, scale)
     assert check_equal(attn_val_, attn_val, atol=atol, rtol=rtol)
 
@@ -67,7 +68,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"], type=str)
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "metax"], type=str)
     parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
     testShapes = [
@@ -88,7 +89,7 @@ if __name__ == "__main__":
                 *shape, dtype_name, atol, rtol, args.device, args.profile
             )
 
-    if args.device == "nvidia":
+    if args.device in ("nvidia", "metax"):
         for kvlen in (1, 32, 128):
             test_op_self_attention(
                 1,

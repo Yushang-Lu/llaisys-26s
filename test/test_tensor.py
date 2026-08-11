@@ -54,7 +54,7 @@ def test_tensor(device_name="cpu"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"])
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "metax"])
     args = parser.parse_args()
     test_tensor(args.device)
 

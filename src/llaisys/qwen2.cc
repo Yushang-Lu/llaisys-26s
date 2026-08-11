@@ -129,8 +129,9 @@ __C {
                            "Qwen2 model metadata cannot be null");
             CHECK_ARGUMENT(
                 device == LLAISYS_DEVICE_CPU ||
-                    device == LLAISYS_DEVICE_NVIDIA,
-                "Qwen2 model supports CPU or NVIDIA devices");
+                    device == LLAISYS_DEVICE_NVIDIA ||
+                    device == LLAISYS_DEVICE_METAX,
+                "Qwen2 model supports CPU, NVIDIA, or MetaX devices");
             CHECK_ARGUMENT(ndevice == 1,
                            "Qwen2 model supports exactly one device");
 

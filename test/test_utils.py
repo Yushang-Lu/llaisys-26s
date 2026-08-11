@@ -1,5 +1,22 @@
+from contextlib import contextmanager
+
 import llaisys
 import torch
+
+
+@contextmanager
+def torch_full_precision_matmul(device_name: str):
+    """Match full-F32 LLAISYS math when MetaX PyTorch defaults to TF32."""
+    if device_name != "metax":
+        yield
+        return
+
+    allow_tf32 = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = False
+    try:
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
 
 
 def random_tensor(
@@ -186,7 +203,7 @@ def benchmark(torch_func, llaisys_func, device_name, warmup=10, repeat=100):
 def torch_device(device_name: str, device_id=0):
     if device_name == "cpu":
         return torch.device("cpu")
-    elif device_name == "nvidia":
+    elif device_name in ("nvidia", "metax"):
         return torch.device(f"cuda:{device_id}")
     else:
         raise ValueError(f"Unsupported device name: {device_name}")
@@ -197,6 +214,8 @@ def llaisys_device(device_name: str):
         return llaisys.DeviceType.CPU
     elif device_name == "nvidia":
         return llaisys.DeviceType.NVIDIA
+    elif device_name == "metax":
+        return llaisys.DeviceType.METAX
     else:
         raise ValueError(f"Unsupported device name: {device_name}")
 
@@ -206,6 +225,8 @@ def device_name(llaisys_device: llaisys.DeviceType):
         return "cpu"
     elif llaisys_device == llaisys.DeviceType.NVIDIA:
         return "nvidia"
+    elif llaisys_device == llaisys.DeviceType.METAX:
+        return "metax"
     else:
         raise ValueError(f"Unsupported llaisys device: {llaisys_device}")
 
