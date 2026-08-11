@@ -6,7 +6,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 import llaisys
 import torch
-from test_utils import random_tensor, check_equal, benchmark
+from test_utils import random_tensor, check_equal, benchmark, torch_full_precision_matmul
 
 
 def torch_linear(out, x, w, bias):
@@ -34,7 +34,8 @@ def test_op_linear(
         bias, bias_ = random_tensor((w_shape[0],), dtype_name, device_name)
 
     out, out_ = random_tensor(out_shape, dtype_name, device_name)
-    torch_linear(out, x, w, bias)
+    with torch_full_precision_matmul(device_name):
+        torch_linear(out, x, w, bias)
     llaisys.Ops.linear(out_, x_, w_, bias_)
 
     assert check_equal(out_, out, atol=atol, rtol=rtol)
@@ -53,7 +54,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"], type=str)
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "metax"], type=str)
     parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
     testShapes = [

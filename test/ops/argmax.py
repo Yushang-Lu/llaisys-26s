@@ -71,7 +71,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia"], type=str)
+    parser.add_argument("--device", default="cpu", choices=["cpu", "nvidia", "metax"], type=str)
     parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
     testShapes = [(4,), (4096,)]
@@ -81,7 +81,7 @@ if __name__ == "__main__":
         for dtype_name in testDtype:
             test_op_argmax(shape, dtype_name, args.device, args.profile)
 
-    if args.device == "nvidia":
+    if args.device in ("nvidia", "metax"):
         large_values = -torch.arange(1, 151937, dtype=torch.float32)
         large_values[100000] = 3.0
 
